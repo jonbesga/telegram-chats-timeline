@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Message Timeline</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-container {
+            margin: 20px 0;
+            position: relative;
+            height: 400px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        select, input[type="file"] {
+            padding: 8px;
+            font-size: 16px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .file-input-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .file-input-container label {
+            font-weight: bold;
+        }
+        .error-message {
+            color: #dc3545;
+            margin-top: 10px;
+            display: none;
+        }
+        .uploaded-files {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .uploaded-files h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        .file-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .file-list li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 0;
+        }
+        .file-list li button {
+            padding: 2px 8px;
+            font-size: 12px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .file-list li button:hover {
+            background-color: #c82333;
+        }
+        .privacy-notice {
+            background-color: #e9ecef;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin: 10px 0 20px 0;
+            font-size: 14px;
+            color: #495057;
+            border-left: 4px solid #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Message Timeline</h1>
+        <div class="privacy-notice">
+            🔒 Privacy Notice: All data processing happens locally in your browser. Your files are not stored or sent anywhere. Once you close this page, all data is cleared.
+        </div>
+        <div class="controls">
+            <div class="file-input-container">
+                <label for="jsonFile">Upload JSON File:</label>
+                <input type="file" id="jsonFile" accept=".json" onchange="handleFileUpload(event)">
+            </div>
+            <select id="chatSelector" onchange="switchChat()" disabled>
+                <option value="">Select a chat</option>
+            </select>
+            <select id="timePeriod" onchange="updateChart()" disabled>
+                <option value="month">Monthly View</option>
+                <option value="year">Yearly View</option>
+            </select>
+        </div>
+        <div id="errorMessage" class="error-message"></div>
+        <div class="uploaded-files">
+            <h3>Uploaded Files</h3>
+            <ul id="fileList" class="file-list"></ul>
+        </div>
+        <div class="chart-container">
+            <canvas id="messageChart"></canvas>
+        </div>
+    </div>
+    <script src="timeline.js"></script>
+</body>
+</html> 
