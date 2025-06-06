@@ -83,7 +83,7 @@
         .file-list li button:hover {
             background-color: #c82333;
         }
-        .privacy-notice {
+        .privacy-notice, .instructions-notice {
             background-color: #e9ecef;
             padding: 10px 15px;
             border-radius: 4px;
@@ -92,6 +92,19 @@
             color: #495057;
             border-left: 4px solid #6c757d;
         }
+        .instructions-notice {
+            border-left-color: #0d6efd;
+        }
+        .instructions-notice ol {
+            margin: 10px 0 0 0;
+            padding-left: 20px;
+        }
+        .instructions-notice li {
+            margin-bottom: 5px;
+        }
+        .instructions-notice li:last-child {
+            margin-bottom: 0;
+        }
     </style>
 </head>
 <body>
@@ -99,6 +112,18 @@
         <h1>Message Timeline</h1>
         <div class="privacy-notice">
             🔒 Privacy Notice: All data processing happens locally in your browser. Your files are not stored or sent anywhere. Once you close this page, all data is cleared.
+        </div>
+        <div class="instructions-notice">
+            📱 How to export your Telegram chat history:
+            <ol>
+                <li>Open Telegram Desktop</li>
+                <li>Go to the conversation you want to analyze</li>
+                <li>Click the three dots menu (⋮) in the top right</li>
+                <li>Select "Export chat history"</li>
+                <li>In the export options, unselect all media types to keep only text</li>
+                <li>Choose "JSON" as the format</li>
+                <li>Click "Export" and upload the resulting file here</li>
+            </ol>
         </div>
         <div class="controls">
             <div class="file-input-container">
