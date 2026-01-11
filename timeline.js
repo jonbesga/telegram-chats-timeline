@@ -451,16 +451,16 @@ class AnalysisApp {
                             display: true,
                             text: timeLabel
                         }
-                }
-            },
-            plugins: {
-                title: {
-                    display: true,
-                    text: titleText,
-                    font: {
-                        size: 16
                     }
-                }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: titleText,
+                        font: {
+                            size: 16
+                        }
+                    }
                 }
             }
         });
