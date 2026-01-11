@@ -549,11 +549,14 @@ function setupSourceVerification() {
         setStatus('Checking...', 'checking');
         try {
             const baseUrl = `https://raw.githubusercontent.com/${repo}/${commit}/`;
+            const scriptTag = document.querySelector('script[src*="timeline.js"]');
+            const localScriptUrl = scriptTag ? scriptTag.getAttribute('src') : 'timeline.js';
+            const remoteScriptPath = localScriptUrl.split('?')[0].replace(/^\//, '') || 'timeline.js';
             const [localIndex, localScript, remoteIndex, remoteScript] = await Promise.all([
                 fetchText('index.html'),
-                fetchText('timeline.js'),
+                fetchText(localScriptUrl),
                 fetchText(`${baseUrl}index.html`),
-                fetchText(`${baseUrl}timeline.js`)
+                fetchText(`${baseUrl}${remoteScriptPath}`)
             ]);
             const [localIndexHash, localScriptHash, remoteIndexHash, remoteScriptHash] = await Promise.all([
                 hashText(localIndex),
