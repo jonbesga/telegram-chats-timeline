@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chat-timeline
+  namespace: jon
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: convoanalysis.nomaitech.com
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+spec:
+  rules:
+    - host: convoanalysis.nomaitech.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chat-timeline
+                port:
+                  number: 80

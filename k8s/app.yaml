@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-timeline
+  namespace: jon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chat-timeline
+  template:
+    metadata:
+      labels:
+        app: chat-timeline
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: chat-timeline
+          image: pdr.jonbesga.com/telegram-chats-timeline:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-timeline
+  namespace: jon
+spec:
+  selector:
+    app: chat-timeline
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP

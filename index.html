@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="google-site-verification" content="bTk1LKTMOw_XJPjSZFFsQ3FeMhdOqQrERJUSracIwDg" />
-    <title>Telegram Chat Timeline Visualizer</title>
+    <title>Chat Timeline Visualizer</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
@@ -35,6 +35,31 @@
             gap: 20px;
             align-items: center;
             flex-wrap: wrap;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            padding: 10px 16px;
+            border: 1px solid #ced4da;
+            background-color: #f1f3f5;
+            color: #495057;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .tab-button.active {
+            background-color: #0d6efd;
+            color: white;
+            border-color: #0d6efd;
+        }
+        .tab-panel {
+            display: none;
+        }
+        .tab-panel.active {
+            display: block;
         }
         select, input[type="file"] {
             padding: 8px;
@@ -145,44 +170,93 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 Telegram Chat Timeline Visualizer</h1>
-            <p>Visualize your chat activity patterns over time</p>
+            <h1>📊 Chat Timeline Visualizer</h1>
+            <p>Compare Telegram and AI chat activity patterns over time</p>
         </div>
-        <div class="privacy-notice">
-            🔒 Privacy Notice: All data processing happens locally in your browser. Your files are not stored or sent anywhere. Once you close this page, all data is cleared.
+        <div class="tabs" role="tablist" aria-label="Analysis tabs">
+            <button class="tab-button active" data-tab="telegram" role="tab" aria-selected="true">Telegram analysis</button>
+            <button class="tab-button" data-tab="ai" role="tab" aria-selected="false">AI analysis</button>
         </div>
-        <div class="instructions-notice">
-            📱 How to export your Telegram chat history:
-            <ol>
-                <li>Open Telegram Desktop</li>
-                <li>Go to the conversation you want to analyze</li>
-                <li>Click the three dots menu (⋮) in the top right</li>
-                <li>Select "Export chat history"</li>
-                <li>In the export options, unselect all media types to keep only text</li>
-                <li>Choose "JSON" as the format</li>
-                <li>Click "Export" and upload the resulting file here</li>
-            </ol>
-        </div>
-        <div class="controls">
-            <div class="file-input-container">
-                <label for="jsonFile">Upload JSON File:</label>
-                <input type="file" id="jsonFile" accept=".json" onchange="handleFileUpload(event)">
+        <div id="telegramTab" class="tab-panel active" role="tabpanel">
+            <div class="privacy-notice">
+                🔒 Privacy Notice: All data processing happens locally in your browser. Your files are not stored or sent anywhere. Once you close this page, all data is cleared.
             </div>
-            <select id="chatSelector" onchange="switchChat()" disabled>
-                <option value="">Select a chat</option>
-            </select>
-            <select id="timePeriod" onchange="updateChart()" disabled>
-                <option value="month">Monthly View</option>
-                <option value="year">Yearly View</option>
-            </select>
+            <div class="instructions-notice">
+                📱 How to export your Telegram chat history:
+                <ol>
+                    <li>Open Telegram Desktop</li>
+                    <li>Go to the conversation you want to analyze</li>
+                    <li>Click the three dots menu (⋮) in the top right</li>
+                    <li>Select "Export chat history"</li>
+                    <li>In the export options, unselect all media types to keep only text</li>
+                    <li>Choose "JSON" as the format</li>
+                    <li>Click "Export" and upload the resulting file here</li>
+                </ol>
+            </div>
+            <div class="controls">
+                <div class="file-input-container">
+                    <label for="jsonFile">Upload JSON File:</label>
+                    <input type="file" id="jsonFile" accept=".json">
+                </div>
+                <select id="chatSelector" disabled>
+                    <option value="">Select a chat</option>
+                </select>
+                <select id="timePeriod" disabled>
+                    <option value="month">Monthly View</option>
+                    <option value="year">Yearly View</option>
+                </select>
+            </div>
+            <div id="errorMessage" class="error-message"></div>
+            <div class="uploaded-files">
+                <h3>Uploaded Files</h3>
+                <ul id="fileList" class="file-list"></ul>
+            </div>
+            <div class="chart-container">
+                <canvas id="messageChart"></canvas>
+            </div>
         </div>
-        <div id="errorMessage" class="error-message"></div>
-        <div class="uploaded-files">
-            <h3>Uploaded Files</h3>
-            <ul id="fileList" class="file-list"></ul>
-        </div>
-        <div class="chart-container">
-            <canvas id="messageChart"></canvas>
+        <div id="aiTab" class="tab-panel" role="tabpanel">
+            <div class="privacy-notice">
+                🔒 Privacy Notice: Your AI chat files stay in your browser and are never uploaded.
+            </div>
+            <div class="instructions-notice">
+                🤖 Claude and OpenAI export tips:
+                <ol>
+                    <li>Download your Claude or OpenAI data export</li>
+                    <li>Upload the <strong>conversations.json</strong> file from the export</li>
+                    <li>See a daily histogram with separate colors per provider</li>
+                </ol>
+            </div>
+            <div class="controls">
+                <div class="file-input-container">
+                    <label for="aiJsonFile">Upload conversations.json (Claude or OpenAI):</label>
+                    <input type="file" id="aiJsonFile" accept=".json">
+                </div>
+                <select id="aiChatSelector" disabled>
+                    <option value="">Select a chat</option>
+                </select>
+                <select id="aiTimePeriod" disabled>
+                    <option value="day">Daily View</option>
+                    <option value="month">Monthly View</option>
+                </select>
+                <select id="aiChartStyle" disabled>
+                    <option value="stacked">Stacked Bars</option>
+                    <option value="grouped">Side-by-Side Bars</option>
+                    <option value="line">Line Chart</option>
+                </select>
+                <label class="file-input-container">
+                    <input type="checkbox" id="aiMovingAverage" disabled>
+                    Show moving average
+                </label>
+            </div>
+            <div id="aiErrorMessage" class="error-message"></div>
+            <div class="uploaded-files">
+                <h3>Uploaded Files</h3>
+                <ul id="aiFileList" class="file-list"></ul>
+            </div>
+            <div class="chart-container">
+                <canvas id="aiMessageChart"></canvas>
+            </div>
         </div>
     </div>
     <footer class="footer">

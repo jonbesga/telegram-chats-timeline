@@ -1,215 +1,568 @@
-let chart = null;
-let loadedChats = new Map(); // Map to store all loaded chat data
-let currentChatId = null;
-
-function showError(message) {
-    const errorElement = document.getElementById('errorMessage');
-    errorElement.textContent = message;
-    errorElement.style.display = 'block';
-}
-
-function hideError() {
-    const errorElement = document.getElementById('errorMessage');
-    errorElement.style.display = 'none';
-}
-
-function updateFileList() {
-    const fileList = document.getElementById('fileList');
-    fileList.innerHTML = '';
-    
-    loadedChats.forEach((data, id) => {
-        const li = document.createElement('li');
-        li.innerHTML = `
-            <span>${data.name}</span>
-            <button onclick="removeChat('${id}')">Remove</button>
-        `;
-        fileList.appendChild(li);
-    });
-}
-
-function updateChatSelector() {
-    const selector = document.getElementById('chatSelector');
-    selector.innerHTML = '<option value="">Select a chat</option>';
-    
-    loadedChats.forEach((data, id) => {
-        const option = document.createElement('option');
-        option.value = id;
-        option.textContent = data.name;
-        selector.appendChild(option);
-    });
-    
-    selector.disabled = loadedChats.size === 0;
-    document.getElementById('timePeriod').disabled = loadedChats.size === 0;
-}
-
-function removeChat(chatId) {
-    loadedChats.delete(chatId);
-    if (currentChatId === chatId) {
-        currentChatId = null;
-        if (chart) {
-            chart.destroy();
-            chart = null;
-        }
+class AnalysisApp {
+    constructor(options) {
+        this.fileInputId = options.fileInputId;
+        this.chatSelectorId = options.chatSelectorId;
+        this.timePeriodId = options.timePeriodId;
+        this.chartStyleId = options.chartStyleId || null;
+        this.movingAverageId = options.movingAverageId || null;
+        this.errorMessageId = options.errorMessageId;
+        this.fileListId = options.fileListId;
+        this.messageChartId = options.messageChartId;
+        this.itemLabel = options.itemLabel || 'Messages';
+        this.timePeriodLabelMap = options.timePeriodLabelMap || {
+            month: 'Month',
+            year: 'Year',
+            day: 'Day'
+        };
+        this.defaultTimePeriod = options.defaultTimePeriod || 'month';
+        this.parseFileData = options.parseFileData || this.defaultParseFileData;
+        this.aggregateBySource = options.aggregateBySource || false;
+        this.sourceColorMap = options.sourceColorMap || {};
+        this.sourceOrder = options.sourceOrder || [];
+        this.movingAverageWindowMap = options.movingAverageWindowMap || { day: 7, month: 3, year: 3 };
+        this.chart = null;
+        this.loadedChats = new Map();
+        this.currentChatId = null;
     }
-    updateFileList();
-    updateChatSelector();
-}
 
-function switchChat() {
-    const chatId = document.getElementById('chatSelector').value;
-    if (!chatId) {
-        if (chart) {
-            chart.destroy();
-            chart = null;
+    init() {
+        this.fileInput = document.getElementById(this.fileInputId);
+        this.chatSelector = document.getElementById(this.chatSelectorId);
+        this.timePeriod = document.getElementById(this.timePeriodId);
+        this.chartStyle = this.chartStyleId ? document.getElementById(this.chartStyleId) : null;
+        this.movingAverageToggle = this.movingAverageId ? document.getElementById(this.movingAverageId) : null;
+        this.errorMessage = document.getElementById(this.errorMessageId);
+        this.fileList = document.getElementById(this.fileListId);
+        this.messageChart = document.getElementById(this.messageChartId);
+
+        this.fileInput.addEventListener('change', (event) => this.handleFileUpload(event));
+        this.chatSelector.addEventListener('change', () => this.switchChat());
+        this.timePeriod.addEventListener('change', () => this.updateChart());
+        if (this.chartStyle) {
+            this.chartStyle.addEventListener('change', () => this.updateChart());
         }
-        return;
+        if (this.movingAverageToggle) {
+            this.movingAverageToggle.addEventListener('change', () => this.updateChart());
+        }
+
+        this.updateChatSelector();
+        this.updateFileList();
     }
-    
-    currentChatId = chatId;
-    const timePeriod = document.getElementById('timePeriod').value;
-    createChart(timePeriod);
-}
 
-function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+    defaultParseFileData(rawData, file) {
+        if (!rawData.messages || !Array.isArray(rawData.messages)) {
+            throw new Error('Invalid JSON format: missing or invalid messages array');
+        }
 
-    const reader = new FileReader();
-    
-    reader.onload = function(e) {
-        try {
-            const data = JSON.parse(e.target.result);
-            if (!data.messages || !Array.isArray(data.messages)) {
-                throw new Error('Invalid JSON format: missing or invalid messages array');
+        const dates = rawData.messages
+            .map(message => message.date)
+            .filter(Boolean);
+
+        return {
+            name: rawData.name || file.name,
+            dates: dates
+        };
+    }
+
+    showError(message) {
+        this.errorMessage.textContent = message;
+        this.errorMessage.style.display = 'block';
+    }
+
+    hideError() {
+        this.errorMessage.style.display = 'none';
+    }
+
+    updateFileList() {
+        this.fileList.innerHTML = '';
+
+        this.loadedChats.forEach((data, id) => {
+            const li = document.createElement('li');
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = data.source ? `${data.name} (${data.source})` : data.name;
+
+            const removeButton = document.createElement('button');
+            removeButton.textContent = 'Remove';
+            removeButton.addEventListener('click', () => this.removeChat(id));
+
+            li.appendChild(nameSpan);
+            li.appendChild(removeButton);
+            this.fileList.appendChild(li);
+        });
+    }
+
+    updateChatSelector() {
+        if (this.aggregateBySource) {
+            this.chatSelector.innerHTML = '<option value="all">All sources</option>';
+            this.chatSelector.value = 'all';
+            this.chatSelector.disabled = true;
+            this.timePeriod.disabled = this.loadedChats.size === 0;
+            if (this.chartStyle) {
+                this.chartStyle.disabled = this.loadedChats.size === 0;
             }
-            
-            // Generate a unique ID for this chat
-            const chatId = Date.now().toString();
-            loadedChats.set(chatId, {
-                name: data.name || file.name,
-                messages: data.messages
-            });
-            
-            hideError();
-            updateFileList();
-            updateChatSelector();
-            
-            // Select the newly added chat
-            document.getElementById('chatSelector').value = chatId;
-            currentChatId = chatId;
-            createChart('month'); // Default to monthly view
-            
-        } catch (error) {
-            showError('Error loading file: ' + error.message);
+            if (this.movingAverageToggle) {
+                this.movingAverageToggle.disabled = this.loadedChats.size === 0;
+            }
+            return;
         }
-    };
 
-    reader.onerror = function() {
-        showError('Error reading file');
-    };
+        this.chatSelector.innerHTML = '<option value="">Select a chat</option>';
 
-    reader.readAsText(file);
-}
+        this.loadedChats.forEach((data, id) => {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = data.name;
+            this.chatSelector.appendChild(option);
+        });
 
-function processData(timePeriod) {
-    if (!currentChatId || !loadedChats.has(currentChatId)) {
-        return { labels: [], data: [] };
+        const isEmpty = this.loadedChats.size === 0;
+        this.chatSelector.disabled = isEmpty;
+        this.timePeriod.disabled = isEmpty;
+        if (this.chartStyle) {
+            this.chartStyle.disabled = isEmpty;
+        }
+        if (this.movingAverageToggle) {
+            this.movingAverageToggle.disabled = isEmpty;
+        }
     }
 
-    const messages = loadedChats.get(currentChatId).messages;
-    const messageCounts = {};
-    
-    messages.forEach(message => {
-        const date = new Date(message.date);
-        let key;
-        
-        if (timePeriod === 'month') {
-            // Format: "YYYY-MM"
-            key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        } else {
-            // Format: "YYYY"
-            key = date.getFullYear().toString();
+    removeChat(chatId) {
+        this.loadedChats.delete(chatId);
+        if (this.currentChatId === chatId) {
+            this.currentChatId = null;
+            if (this.chart) {
+                this.chart.destroy();
+                this.chart = null;
+            }
         }
-        
-        messageCounts[key] = (messageCounts[key] || 0) + 1;
-    });
-    
-    // Sort the keys chronologically
-    const sortedKeys = Object.keys(messageCounts).sort();
-    
-    // Format labels for display
-    const labels = sortedKeys.map(key => {
+        this.updateFileList();
+        this.updateChatSelector();
+        if (this.aggregateBySource) {
+            if (this.loadedChats.size === 0 && this.chart) {
+                this.chart.destroy();
+                this.chart = null;
+                return;
+            }
+            this.createChart(this.timePeriod.value);
+        }
+    }
+
+    switchChat() {
+        if (this.aggregateBySource) {
+            const timePeriod = this.timePeriod.value;
+            this.createChart(timePeriod);
+            return;
+        }
+
+        const chatId = this.chatSelector.value;
+        if (!chatId) {
+            if (this.chart) {
+                this.chart.destroy();
+                this.chart = null;
+            }
+            return;
+        }
+
+        this.currentChatId = chatId;
+        const timePeriod = this.timePeriod.value;
+        this.createChart(timePeriod);
+    }
+
+    handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                const parsedData = this.parseFileData(data, file);
+                if (!parsedData.dates || parsedData.dates.length === 0) {
+                    throw new Error('No dated items found in the uploaded file');
+                }
+
+                const chatId = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+                this.loadedChats.set(chatId, {
+                    name: parsedData.name,
+                    dates: parsedData.dates,
+                    source: parsedData.source
+                });
+
+                this.hideError();
+                this.updateFileList();
+                this.updateChatSelector();
+
+                if (!this.aggregateBySource) {
+                    this.chatSelector.value = chatId;
+                    this.currentChatId = chatId;
+                }
+                this.timePeriod.value = this.defaultTimePeriod;
+                this.createChart(this.defaultTimePeriod);
+            } catch (error) {
+                this.showError('Error loading file: ' + error.message);
+            }
+        };
+
+        reader.onerror = () => {
+            this.showError('Error reading file');
+        };
+
+        reader.readAsText(file);
+    }
+
+    getTimeKey(date, timePeriod) {
+        if (timePeriod === 'month') {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+        if (timePeriod === 'day') {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+        return date.getFullYear().toString();
+    }
+
+    formatLabelForKey(key, timePeriod) {
         if (timePeriod === 'month') {
             const [year, month] = key.split('-');
             return new Date(year, month - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         }
+        if (timePeriod === 'day') {
+            const [year, month, day] = key.split('-');
+            return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
         return key;
-    });
-    
-    const data = sortedKeys.map(key => messageCounts[key]);
-    
-    return { labels, data };
-}
-
-function createChart(timePeriod) {
-    const { labels, data } = processData(timePeriod);
-    
-    const ctx = document.getElementById('messageChart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (chart) {
-        chart.destroy();
     }
-    
-    const chatName = currentChatId ? loadedChats.get(currentChatId).name : '';
-    
-    chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: `Messages per ${timePeriod === 'month' ? 'Month' : 'Year'}`,
-                data: data,
-                backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Number of Messages'
+
+    getOrderedSources(sources) {
+        const ordered = [];
+        const remaining = new Set(sources);
+        this.sourceOrder.forEach(source => {
+            if (remaining.has(source)) {
+                ordered.push(source);
+                remaining.delete(source);
+            }
+        });
+        remaining.forEach(source => ordered.push(source));
+        return ordered;
+    }
+
+    getSourceColors(source, index) {
+        if (this.sourceColorMap[source]) {
+            return this.sourceColorMap[source];
+        }
+        const palette = [
+            { backgroundColor: 'rgba(54, 162, 235, 0.5)', borderColor: 'rgba(54, 162, 235, 1)' },
+            { backgroundColor: 'rgba(40, 167, 69, 0.5)', borderColor: 'rgba(40, 167, 69, 1)' },
+            { backgroundColor: 'rgba(255, 193, 7, 0.5)', borderColor: 'rgba(255, 193, 7, 1)' }
+        ];
+        return palette[index % palette.length];
+    }
+
+    computeMovingAverage(values, windowSize) {
+        if (!windowSize || windowSize <= 1) {
+            return values.slice();
+        }
+        const result = [];
+        for (let i = 0; i < values.length; i += 1) {
+            const start = Math.max(0, i - windowSize + 1);
+            let sum = 0;
+            let count = 0;
+            for (let j = start; j <= i; j += 1) {
+                sum += values[j];
+                count += 1;
+            }
+            result.push(sum / count);
+        }
+        return result;
+    }
+
+    getMovingAverageDataset(processed, timePeriod) {
+        if (!this.movingAverageToggle || !this.movingAverageToggle.checked) {
+            return null;
+        }
+        const windowSize = this.movingAverageWindowMap[timePeriod];
+        if (!windowSize) {
+            return null;
+        }
+        let values = [];
+        if (processed.datasets) {
+            const length = processed.labels.length;
+            values = new Array(length).fill(0);
+            processed.datasets.forEach(dataset => {
+                dataset.data.forEach((value, index) => {
+                    values[index] += value;
+                });
+            });
+        } else if (processed.data) {
+            values = processed.data.slice();
+        }
+        const averaged = this.computeMovingAverage(values, windowSize);
+        return {
+            label: `${windowSize}-period moving average`,
+            data: averaged,
+            type: 'line',
+            fill: false,
+            pointRadius: 0,
+            tension: 0.2,
+            borderWidth: 2,
+            borderColor: 'rgba(108, 117, 125, 1)',
+            backgroundColor: 'rgba(108, 117, 125, 0.2)'
+        };
+    }
+
+    processData(timePeriod) {
+        if (this.aggregateBySource) {
+            if (this.loadedChats.size === 0) {
+                return { labels: [], datasets: [] };
+            }
+
+            const countsBySource = new Map();
+            const allKeys = new Set();
+
+            this.loadedChats.forEach(chat => {
+                const source = chat.source || 'Unknown';
+                if (!countsBySource.has(source)) {
+                    countsBySource.set(source, {});
+                }
+                const counts = countsBySource.get(source);
+
+                chat.dates.forEach(dateEntry => {
+                    const date = new Date(dateEntry);
+                    if (Number.isNaN(date.getTime())) {
+                        return;
                     }
-                },
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Time Period'
-                    }
+                    const key = this.getTimeKey(date, timePeriod);
+                    counts[key] = (counts[key] || 0) + 1;
+                    allKeys.add(key);
+                });
+            });
+
+            const sortedKeys = Array.from(allKeys).sort();
+            const labels = sortedKeys.map(key => this.formatLabelForKey(key, timePeriod));
+            const sources = this.getOrderedSources(Array.from(countsBySource.keys()));
+
+            const datasets = sources.map((source, index) => {
+                const counts = countsBySource.get(source) || {};
+                const data = sortedKeys.map(key => counts[key] || 0);
+                const colors = this.getSourceColors(source, index);
+                return {
+                    label: `${source} ${this.itemLabel}`,
+                    data: data,
+                    backgroundColor: colors.backgroundColor,
+                    borderColor: colors.borderColor,
+                    borderWidth: 1
+                };
+            });
+
+            return { labels, datasets };
+        }
+
+        if (!this.currentChatId || !this.loadedChats.has(this.currentChatId)) {
+            return { labels: [], data: [] };
+        }
+
+        const dates = this.loadedChats.get(this.currentChatId).dates;
+        const messageCounts = {};
+
+        dates.forEach(dateEntry => {
+            const date = new Date(dateEntry);
+            if (Number.isNaN(date.getTime())) {
+                return;
+            }
+            const key = this.getTimeKey(date, timePeriod);
+            messageCounts[key] = (messageCounts[key] || 0) + 1;
+        });
+
+        const sortedKeys = Object.keys(messageCounts).sort();
+        const labels = sortedKeys.map(key => this.formatLabelForKey(key, timePeriod));
+        const data = sortedKeys.map(key => messageCounts[key]);
+
+        return { labels, data };
+    }
+
+    createChart(timePeriod) {
+        const processed = this.processData(timePeriod);
+        const labels = processed.labels;
+
+        const ctx = this.messageChart.getContext('2d');
+
+        if (this.chart) {
+            this.chart.destroy();
+        }
+
+        const chatName = this.currentChatId ? this.loadedChats.get(this.currentChatId).name : '';
+        const timeLabel = this.timePeriodLabelMap[timePeriod] || timePeriod;
+        const titleBase = this.aggregateBySource ? 'All sources' : chatName;
+        const titleText = titleBase
+            ? `${titleBase} - ${this.itemLabel} per ${timeLabel}`
+            : `${this.itemLabel} per ${timeLabel}`;
+        const datasets = processed.datasets || [{
+            label: `${this.itemLabel} per ${timeLabel}`,
+            data: processed.data,
+            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+        }];
+        const movingAverageDataset = this.getMovingAverageDataset(processed, timePeriod);
+        if (movingAverageDataset) {
+            datasets.push(movingAverageDataset);
+        }
+        const chartStyle = this.chartStyle ? this.chartStyle.value : 'grouped';
+        const isStacked = chartStyle === 'stacked';
+        const chartType = chartStyle === 'line' ? 'line' : 'bar';
+        const chartDatasets = datasets.map(dataset => {
+            if (chartType !== 'line') {
+                return dataset;
+            }
+            return {
+                ...dataset,
+                fill: false,
+                pointRadius: 0,
+                tension: 0.25,
+                borderWidth: 2
+            };
+        });
+
+        this.chart = new Chart(ctx, {
+            type: chartType,
+            data: {
+                labels: labels,
+                datasets: chartDatasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        stacked: isStacked,
+                        title: {
+                            display: true,
+                            text: `Number of ${this.itemLabel}`
+                        }
+                    },
+                    x: {
+                        stacked: isStacked,
+                        title: {
+                            display: true,
+                            text: timeLabel
+                        }
                 }
             },
             plugins: {
                 title: {
                     display: true,
-                    text: `${chatName} - Messages per ${timePeriod === 'month' ? 'Month' : 'Year'}`,
+                    text: titleText,
                     font: {
                         size: 16
                     }
                 }
+                }
             }
-        }
+        });
+    }
+
+    updateChart() {
+        const timePeriod = this.timePeriod.value;
+        this.createChart(timePeriod);
+    }
+}
+
+function setupTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabPanels = document.querySelectorAll('.tab-panel');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            tabButtons.forEach(btn => {
+                btn.classList.remove('active');
+                btn.setAttribute('aria-selected', 'false');
+            });
+            tabPanels.forEach(panel => panel.classList.remove('active'));
+
+            button.classList.add('active');
+            button.setAttribute('aria-selected', 'true');
+
+            const target = button.getAttribute('data-tab');
+            const panel = document.getElementById(`${target}Tab`);
+            if (panel) {
+                panel.classList.add('active');
+            }
+        });
     });
 }
 
-function updateChart() {
-    const timePeriod = document.getElementById('timePeriod').value;
-    createChart(timePeriod);
-}
+document.addEventListener('DOMContentLoaded', () => {
+    const telegramApp = new AnalysisApp({
+        fileInputId: 'jsonFile',
+        chatSelectorId: 'chatSelector',
+        timePeriodId: 'timePeriod',
+        errorMessageId: 'errorMessage',
+        fileListId: 'fileList',
+        messageChartId: 'messageChart',
+        itemLabel: 'Messages',
+        defaultTimePeriod: 'month'
+    });
 
-// Load data when the page loads
-document.addEventListener('DOMContentLoaded', loadData); 
+    const aiApp = new AnalysisApp({
+        fileInputId: 'aiJsonFile',
+        chatSelectorId: 'aiChatSelector',
+        timePeriodId: 'aiTimePeriod',
+        chartStyleId: 'aiChartStyle',
+        movingAverageId: 'aiMovingAverage',
+        errorMessageId: 'aiErrorMessage',
+        fileListId: 'aiFileList',
+        messageChartId: 'aiMessageChart',
+        itemLabel: 'Conversations',
+        defaultTimePeriod: 'day',
+        aggregateBySource: true,
+        sourceOrder: ['Claude', 'OpenAI', 'Unknown'],
+        sourceColorMap: {
+            Claude: { backgroundColor: 'rgba(54, 162, 235, 0.5)', borderColor: 'rgba(54, 162, 235, 1)' },
+            OpenAI: { backgroundColor: 'rgba(40, 167, 69, 0.5)', borderColor: 'rgba(40, 167, 69, 1)' },
+            Unknown: { backgroundColor: 'rgba(255, 193, 7, 0.5)', borderColor: 'rgba(255, 193, 7, 1)' }
+        },
+        movingAverageWindowMap: { day: 7, month: 3 },
+        parseFileData: (rawData, file) => {
+            if (!Array.isArray(rawData)) {
+                throw new Error('Invalid JSON format: expected a conversations array');
+            }
+
+            const first = rawData[0] || {};
+            if (typeof first.create_time === 'number' || typeof first.update_time === 'number') {
+                const dates = rawData
+                    .map(conversation => conversation.create_time || conversation.update_time)
+                    .filter(value => typeof value === 'number')
+                    .map(value => value * 1000);
+
+                return {
+                    name: file.name,
+                    dates: dates,
+                    source: 'OpenAI'
+                };
+            }
+
+            if (typeof first.created_at === 'string' || typeof first.updated_at === 'string') {
+                const dates = rawData
+                    .map(conversation => conversation.created_at || conversation.updated_at)
+                    .filter(Boolean);
+
+                return {
+                    name: file.name,
+                    dates: dates,
+                    source: 'Claude'
+                };
+            }
+
+            throw new Error('Unrecognized conversations format');
+        }
+    });
+
+    telegramApp.init();
+    aiApp.init();
+    setupTabs();
+});
