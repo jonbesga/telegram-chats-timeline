@@ -496,6 +496,87 @@ function setupTabs() {
     });
 }
 
+function setupSourceVerification() {
+    const container = document.querySelector('[data-source-verify]');
+    if (!container) {
+        return;
+    }
+
+    const repo = container.getAttribute('data-repo');
+    const commit = container.getAttribute('data-commit');
+    const link = container.querySelector('.source-link');
+    const button = container.querySelector('.verify-button');
+    const status = container.querySelector('.verify-status');
+
+    const setStatus = (text, state) => {
+        status.textContent = text;
+        status.setAttribute('data-state', state);
+    };
+
+    if (!repo || !commit) {
+        setStatus('Not configured', 'fail');
+        button.disabled = true;
+        return;
+    }
+
+    const commitUrl = `https://github.com/${repo}/tree/${commit}`;
+    link.href = commitUrl;
+    link.textContent = commit;
+
+    if (!window.crypto || !window.crypto.subtle) {
+        setStatus('Unsupported browser', 'fail');
+        button.disabled = true;
+        return;
+    }
+
+    const fetchText = async (url) => {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Request failed: ${response.status}`);
+        }
+        return response.text();
+    };
+
+    const hashText = async (text) => {
+        const data = new TextEncoder().encode(text);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(value => value.toString(16).padStart(2, '0')).join('');
+    };
+
+    const verify = async () => {
+        button.disabled = true;
+        setStatus('Checking...', 'checking');
+        try {
+            const baseUrl = `https://raw.githubusercontent.com/${repo}/${commit}/`;
+            const [localIndex, localScript, remoteIndex, remoteScript] = await Promise.all([
+                fetchText('index.html'),
+                fetchText('timeline.js'),
+                fetchText(`${baseUrl}index.html`),
+                fetchText(`${baseUrl}timeline.js`)
+            ]);
+            const [localIndexHash, localScriptHash, remoteIndexHash, remoteScriptHash] = await Promise.all([
+                hashText(localIndex),
+                hashText(localScript),
+                hashText(remoteIndex),
+                hashText(remoteScript)
+            ]);
+
+            if (localIndexHash === remoteIndexHash && localScriptHash === remoteScriptHash) {
+                setStatus('Verified', 'ok');
+            } else {
+                setStatus('Mismatch', 'fail');
+            }
+        } catch (error) {
+            setStatus('Verification failed', 'fail');
+        } finally {
+            button.disabled = false;
+        }
+    };
+
+    button.addEventListener('click', verify);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const telegramApp = new AnalysisApp({
         fileInputId: 'jsonFile',
@@ -565,4 +646,5 @@ document.addEventListener('DOMContentLoaded', () => {
     telegramApp.init();
     aiApp.init();
     setupTabs();
+    setupSourceVerification();
 });
