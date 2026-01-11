@@ -9,5 +9,5 @@ if [[ -z "${commit_ref}" ]]; then
     commit_ref="$(git -C "${repo_root}" rev-parse HEAD)"
 fi
 
-printf '{\"commit\":\"%s\"}\n' "${commit_ref}" > "${build_file}"
+printf '{"commit":"%s"}\n' "${commit_ref}" > "${build_file}"
 echo "Wrote ${build_file} with commit ${commit_ref}"
