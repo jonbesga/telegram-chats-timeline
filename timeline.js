@@ -5,6 +5,9 @@ class AnalysisApp {
         this.timePeriodId = options.timePeriodId;
         this.chartStyleId = options.chartStyleId || null;
         this.movingAverageId = options.movingAverageId || null;
+        this.extraDashboardsId = options.extraDashboardsId || null;
+        this.hourHeatmapId = options.hourHeatmapId || null;
+        this.memberWordCloudsId = options.memberWordCloudsId || null;
         this.errorMessageId = options.errorMessageId;
         this.fileListId = options.fileListId;
         this.messageChartId = options.messageChartId;
@@ -21,6 +24,7 @@ class AnalysisApp {
         this.sourceOrder = options.sourceOrder || [];
         this.movingAverageWindowMap = options.movingAverageWindowMap || { day: 7, month: 3, year: 3 };
         this.chart = null;
+        this.extraCharts = [];
         this.loadedChats = new Map();
         this.currentChatId = null;
     }
@@ -34,6 +38,9 @@ class AnalysisApp {
         this.errorMessage = document.getElementById(this.errorMessageId);
         this.fileList = document.getElementById(this.fileListId);
         this.messageChart = document.getElementById(this.messageChartId);
+        this.extraDashboards = this.extraDashboardsId ? document.getElementById(this.extraDashboardsId) : null;
+        this.hourHeatmap = this.hourHeatmapId ? document.getElementById(this.hourHeatmapId) : null;
+        this.memberWordClouds = this.memberWordCloudsId ? document.getElementById(this.memberWordCloudsId) : null;
 
         this.fileInput.addEventListener('change', (event) => this.handleFileUpload(event));
         this.chatSelector.addEventListener('change', () => this.switchChat());
@@ -54,13 +61,124 @@ class AnalysisApp {
             throw new Error('Invalid JSON format: missing or invalid messages array');
         }
 
-        const dates = rawData.messages
+        const messages = rawData.messages;
+        const dates = messages
             .map(message => message.date)
             .filter(Boolean);
 
+        const chatType = (rawData.type || '').toLowerCase();
+        const isGroup = chatType.includes('group') || chatType.includes('supergroup') || chatType.includes('channel');
+        const topicsById = new Map();
+        const messageTopicMap = new Map();
+        const memberWordCounts = {};
+        const memberMessageCounts = {};
+
+        if (isGroup) {
+            messages.forEach(message => {
+                if (message.type === 'service' && message.action === 'topic_created') {
+                    const topicId = String(message.id);
+                    topicsById.set(topicId, {
+                        name: message.title || `Topic ${message.id}`,
+                        memberCounts: {},
+                        hourCounts: Array.from({ length: 24 }, () => 0),
+                        memberHourCounts: {}
+                    });
+                }
+            });
+
+            messages.forEach(message => {
+                if (!message.reply_to_message_id) {
+                    return;
+                }
+                const replyToId = String(message.reply_to_message_id);
+                if (topicsById.has(replyToId)) {
+                    messageTopicMap.set(String(message.id), replyToId);
+                    return;
+                }
+                if (messageTopicMap.has(replyToId)) {
+                    messageTopicMap.set(String(message.id), messageTopicMap.get(replyToId));
+                }
+            });
+
+            messages.forEach(message => {
+                const topicInfo = this.extractTopicInfo(message);
+                const topicId = topicInfo ? topicInfo.id : messageTopicMap.get(String(message.id));
+                if (!topicId) {
+                    return;
+                }
+                if (!topicsById.has(topicId)) {
+                    topicsById.set(topicId, {
+                        name: topicInfo ? topicInfo.name : `Topic ${topicId}`,
+                        memberCounts: {},
+                        hourCounts: Array.from({ length: 24 }, () => 0),
+                        memberHourCounts: {}
+                    });
+                }
+                const topic = topicsById.get(topicId);
+                if (topicInfo && topicInfo.name && topic.name === `Topic ${topicId}`) {
+                    topic.name = topicInfo.name;
+                }
+                if (!Array.isArray(topic.hourCounts) || topic.hourCounts.length !== 24) {
+                    topic.hourCounts = Array.from({ length: 24 }, () => 0);
+                }
+                if (!topic.memberHourCounts || typeof topic.memberHourCounts !== 'object') {
+                    topic.memberHourCounts = {};
+                }
+                if (message.type !== 'message') {
+                    return;
+                }
+                const member = this.getMessageMember(message);
+                if (!member) {
+                    return;
+                }
+                topic.memberCounts[member] = (topic.memberCounts[member] || 0) + 1;
+                const messageDate = new Date(message.date);
+                if (!Number.isNaN(messageDate.getTime())) {
+                    const hour = messageDate.getHours();
+                    if (typeof topic.hourCounts[hour] === 'number') {
+                        topic.hourCounts[hour] += 1;
+                    }
+                    if (!topic.memberHourCounts[member]) {
+                        topic.memberHourCounts[member] = new Array(24).fill(0);
+                    }
+                    topic.memberHourCounts[member][hour] += 1;
+                }
+            });
+        }
+
+        messages.forEach(message => {
+            if (message.type !== 'message') {
+                return;
+            }
+            const member = this.getMessageMember(message);
+            if (!member) {
+                return;
+            }
+            memberMessageCounts[member] = (memberMessageCounts[member] || 0) + 1;
+            const text = this.extractMessageText(message);
+            if (!text) {
+                return;
+            }
+            const words = this.tokenizeWords(text);
+            if (words.length === 0) {
+                return;
+            }
+            if (!memberWordCounts[member]) {
+                memberWordCounts[member] = {};
+            }
+            const wordCounts = memberWordCounts[member];
+            words.forEach(word => {
+                wordCounts[word] = (wordCounts[word] || 0) + 1;
+            });
+        });
+
         return {
             name: rawData.name || file.name,
-            dates: dates
+            dates: dates,
+            isGroup: isGroup,
+            topics: Array.from(topicsById, ([id, topic]) => ({ id, ...topic })),
+            memberWordCounts: memberWordCounts,
+            memberMessageCounts: memberMessageCounts
         };
     }
 
@@ -134,6 +252,9 @@ class AnalysisApp {
                 this.chart.destroy();
                 this.chart = null;
             }
+            this.clearExtraDashboards();
+            this.clearHourHeatmap();
+            this.clearMemberWordClouds();
         }
         this.updateFileList();
         this.updateChatSelector();
@@ -160,6 +281,9 @@ class AnalysisApp {
                 this.chart.destroy();
                 this.chart = null;
             }
+            this.clearExtraDashboards();
+            this.clearHourHeatmap();
+            this.clearMemberWordClouds();
             return;
         }
 
@@ -186,7 +310,11 @@ class AnalysisApp {
                 this.loadedChats.set(chatId, {
                     name: parsedData.name,
                     dates: parsedData.dates,
-                    source: parsedData.source
+                    source: parsedData.source,
+                    isGroup: parsedData.isGroup,
+                    topics: parsedData.topics,
+                    memberWordCounts: parsedData.memberWordCounts,
+                    memberMessageCounts: parsedData.memberMessageCounts
                 });
 
                 this.hideError();
@@ -464,11 +592,466 @@ class AnalysisApp {
                 }
             }
         });
+
+        this.renderExtraDashboards();
+        this.renderHourHeatmap();
+        this.renderMemberWordClouds();
     }
 
     updateChart() {
         const timePeriod = this.timePeriod.value;
         this.createChart(timePeriod);
+    }
+
+    clearHourHeatmap() {
+        if (!this.hourHeatmap) {
+            return;
+        }
+        this.hourHeatmap.innerHTML = '';
+    }
+
+    renderHourHeatmap() {
+        if (!this.hourHeatmap) {
+            return;
+        }
+        this.clearHourHeatmap();
+
+        if (this.aggregateBySource) {
+            return;
+        }
+        if (!this.currentChatId || !this.loadedChats.has(this.currentChatId)) {
+            return;
+        }
+
+        const chatData = this.loadedChats.get(this.currentChatId);
+        const dates = Array.isArray(chatData.dates) ? chatData.dates : [];
+        if (dates.length === 0) {
+            return;
+        }
+
+        const counts = new Array(24).fill(0);
+        dates.forEach(dateEntry => {
+            const date = new Date(dateEntry);
+            if (Number.isNaN(date.getTime())) {
+                return;
+            }
+            const hour = date.getHours();
+            counts[hour] += 1;
+        });
+
+        const title = document.createElement('div');
+        title.className = 'hour-heatmap-title';
+        title.textContent = 'Messages by hour';
+        this.hourHeatmap.appendChild(title);
+
+        const grid = document.createElement('div');
+        grid.className = 'hour-heatmap-grid';
+        const maxCount = Math.max(...counts, 0);
+
+        counts.forEach((count, hour) => {
+            const cell = document.createElement('div');
+            cell.className = 'hour-heatmap-cell';
+            const intensity = maxCount ? count / maxCount : 0;
+            const alpha = count ? 0.12 + (0.78 * intensity) : 0;
+            cell.style.backgroundColor = count ? `rgba(40, 167, 69, ${alpha.toFixed(2)})` : '#f1f3f5';
+            cell.title = `${String(hour).padStart(2, '0')}:00 · ${count} messages`;
+            grid.appendChild(cell);
+        });
+        this.hourHeatmap.appendChild(grid);
+
+        const hourLabels = document.createElement('div');
+        hourLabels.className = 'hour-heatmap-hours';
+        ['00', '06', '12', '18', '23'].forEach(label => {
+            const span = document.createElement('span');
+            span.textContent = label;
+            hourLabels.appendChild(span);
+        });
+        this.hourHeatmap.appendChild(hourLabels);
+    }
+
+    clearMemberWordClouds() {
+        if (!this.memberWordClouds) {
+            return;
+        }
+        this.memberWordClouds.innerHTML = '';
+    }
+
+    renderMemberWordClouds() {
+        if (!this.memberWordClouds) {
+            return;
+        }
+        this.clearMemberWordClouds();
+
+        if (this.aggregateBySource) {
+            return;
+        }
+        if (!this.currentChatId || !this.loadedChats.has(this.currentChatId)) {
+            return;
+        }
+
+        const chatData = this.loadedChats.get(this.currentChatId);
+        const memberWordCounts = chatData.memberWordCounts || {};
+        const memberMessageCounts = chatData.memberMessageCounts || {};
+        const members = Object.keys(memberWordCounts);
+        if (members.length === 0) {
+            return;
+        }
+
+        const heading = document.createElement('h3');
+        heading.textContent = 'Member word clouds';
+        heading.className = 'member-clouds-heading';
+        this.memberWordClouds.appendChild(heading);
+
+        const sortedMembers = members.sort((a, b) => {
+            const countA = memberMessageCounts[a] || 0;
+            const countB = memberMessageCounts[b] || 0;
+            return countB - countA;
+        }).slice(0, 6);
+
+        const grid = document.createElement('div');
+        grid.className = 'member-clouds-grid';
+
+        sortedMembers.forEach(member => {
+            const card = document.createElement('div');
+            card.className = 'member-cloud-card';
+
+            const title = document.createElement('div');
+            title.className = 'member-cloud-title';
+            title.textContent = member;
+            card.appendChild(title);
+
+            const words = memberWordCounts[member] || {};
+            const entries = Object.entries(words).sort((a, b) => b[1] - a[1]).slice(0, 30);
+            const maxCount = entries.length ? entries[0][1] : 1;
+
+            const cloud = document.createElement('div');
+            cloud.className = 'member-cloud-words';
+            entries.forEach(([word, count]) => {
+                const span = document.createElement('span');
+                span.className = 'member-cloud-word';
+                const ratio = maxCount ? count / maxCount : 0;
+                const size = 12 + Math.round(18 * ratio);
+                span.style.fontSize = `${size}px`;
+                span.style.opacity = (0.5 + 0.5 * ratio).toFixed(2);
+                span.textContent = word;
+                cloud.appendChild(span);
+            });
+            card.appendChild(cloud);
+            grid.appendChild(card);
+        });
+
+        this.memberWordClouds.appendChild(grid);
+    }
+
+    extractMessageText(message) {
+        if (typeof message.text === 'string') {
+            return message.text;
+        }
+        if (Array.isArray(message.text)) {
+            return message.text
+                .map(entry => {
+                    if (typeof entry === 'string') {
+                        return entry;
+                    }
+                    if (entry && typeof entry.text === 'string') {
+                        return entry.text;
+                    }
+                    return '';
+                })
+                .join(' ');
+        }
+        return '';
+    }
+
+    tokenizeWords(text) {
+        const lower = text.toLowerCase();
+        const parts = lower.split(/[^a-z0-9']+/);
+        const stopWords = this.getStopWords();
+        return parts.filter(word => word.length > 2 && !stopWords.has(word));
+    }
+
+    getStopWords() {
+        return new Set([
+            'the', 'and', 'for', 'that', 'this', 'with', 'you', 'your', 'are', 'but', 'not', 'was', 'were',
+            'have', 'has', 'had', 'its', 'they', 'them', 'their', 'from', 'about', 'just', 'what', 'when',
+            'where', 'who', 'why', 'how', 'can', 'could', 'should', 'would', 'will', 'wont', 'dont', 'does',
+            'did', 'been', 'being', 'into', 'out', 'our', 'ours', 'his', 'her', 'she', 'him', 'i', 'im',
+            'me', 'my', 'we', 'us', 'at', 'in', 'on', 'of', 'to', 'is', 'it', 'as', 'or', 'if', 'so',
+            'no', 'yes', 'ok', 'okay', 'lol', 'lmao', 'haha', 'https', 'http', 'www', 'com', 'net'
+        ]);
+    }
+
+    getMessageMember(message) {
+        if (typeof message.from === 'string' && message.from.trim() !== '') {
+            return message.from;
+        }
+        if (typeof message.actor === 'string' && message.actor.trim() !== '') {
+            return message.actor;
+        }
+        if (typeof message.from_id === 'string' && message.from_id.trim() !== '') {
+            return message.from_id;
+        }
+        return null;
+    }
+
+    extractTopicInfo(message) {
+        const directTopicId = message.topic_id ?? message.thread_id ?? message.topicId ?? message.forum_topic_id;
+        let topicId = directTopicId;
+        let topicName = message.topic_title ?? message.topic_name;
+
+        if (!topicId && message.topic) {
+            if (typeof message.topic === 'string') {
+                topicId = message.topic;
+                topicName = message.topic;
+            } else if (typeof message.topic === 'object') {
+                topicId = message.topic.id ?? message.topic.topic_id;
+                topicName = message.topic.title || message.topic.name;
+            }
+        }
+
+        if (!topicId && message.forum_topic) {
+            if (typeof message.forum_topic === 'object') {
+                topicId = message.forum_topic.id ?? message.forum_topic.topic_id;
+                topicName = message.forum_topic.title || message.forum_topic.name;
+            }
+        }
+
+        if (!topicId) {
+            return null;
+        }
+
+        return {
+            id: String(topicId),
+            name: topicName || `Topic ${topicId}`
+        };
+    }
+
+    clearExtraDashboards() {
+        if (!this.extraDashboards) {
+            return;
+        }
+        this.extraCharts.forEach(chart => chart.destroy());
+        this.extraCharts = [];
+        this.extraDashboards.innerHTML = '';
+    }
+
+    renderExtraDashboards() {
+        if (!this.extraDashboards) {
+            return;
+        }
+
+        this.clearExtraDashboards();
+
+        if (!this.currentChatId || !this.loadedChats.has(this.currentChatId)) {
+            return;
+        }
+
+        const chatData = this.loadedChats.get(this.currentChatId);
+        if (!chatData.isGroup) {
+            return;
+        }
+
+        const topics = Array.isArray(chatData.topics) ? chatData.topics : [];
+        const nonEmptyTopics = topics.filter(topic => Object.keys(topic.memberCounts || {}).length > 0);
+        const heading = document.createElement('h3');
+        heading.textContent = 'Topic dashboards';
+        heading.className = 'topic-dashboard-heading';
+        this.extraDashboards.appendChild(heading);
+
+        if (nonEmptyTopics.length === 0) {
+            const note = document.createElement('div');
+            note.className = 'topic-dashboard-empty';
+            note.textContent = 'No topic breakdown available for this chat export.';
+            this.extraDashboards.appendChild(note);
+            return;
+        }
+
+        nonEmptyTopics.sort((a, b) => {
+            const aTotal = Object.values(a.memberCounts || {}).reduce((sum, value) => sum + value, 0);
+            const bTotal = Object.values(b.memberCounts || {}).reduce((sum, value) => sum + value, 0);
+            return bTotal - aTotal;
+        });
+
+        nonEmptyTopics.forEach(topic => {
+            const section = document.createElement('section');
+            section.className = 'topic-section';
+
+            const title = document.createElement('h4');
+            title.textContent = topic.name || 'Untitled topic';
+            section.appendChild(title);
+
+            const chartContainer = document.createElement('div');
+            chartContainer.className = 'chart-container topic-chart-container';
+            const canvas = document.createElement('canvas');
+            chartContainer.appendChild(canvas);
+            section.appendChild(chartContainer);
+
+            const heatmapContainer = document.createElement('div');
+            heatmapContainer.className = 'topic-heatmap';
+            const heatmapTitle = document.createElement('div');
+            heatmapTitle.className = 'topic-heatmap-title';
+            heatmapTitle.textContent = 'Messages by hour';
+            heatmapContainer.appendChild(heatmapTitle);
+
+            const heatmapGrid = document.createElement('div');
+            heatmapGrid.className = 'topic-heatmap-grid';
+            const hourCounts = Array.isArray(topic.hourCounts) ? topic.hourCounts.slice(0, 24) : new Array(24).fill(0);
+            while (hourCounts.length < 24) {
+                hourCounts.push(0);
+            }
+            const maxCount = Math.max(...hourCounts, 0);
+            hourCounts.forEach((count, hour) => {
+                const cell = document.createElement('div');
+                cell.className = 'topic-heatmap-cell';
+                const intensity = maxCount ? count / maxCount : 0;
+                const alpha = count ? 0.15 + (0.75 * intensity) : 0;
+                cell.style.backgroundColor = count ? `rgba(13, 110, 253, ${alpha.toFixed(2)})` : '#f1f3f5';
+                cell.title = `${String(hour).padStart(2, '0')}:00 - ${count} messages`;
+                heatmapGrid.appendChild(cell);
+            });
+            heatmapContainer.appendChild(heatmapGrid);
+
+            const heatmapLabels = document.createElement('div');
+            heatmapLabels.className = 'topic-heatmap-labels';
+            ['0', '6', '12', '18', '23'].forEach(label => {
+                const span = document.createElement('span');
+                span.textContent = label;
+                heatmapLabels.appendChild(span);
+            });
+            heatmapContainer.appendChild(heatmapLabels);
+            section.appendChild(heatmapContainer);
+
+            const lineContainer = document.createElement('div');
+            lineContainer.className = 'chart-container topic-line-container';
+            const lineCanvas = document.createElement('canvas');
+            lineContainer.appendChild(lineCanvas);
+            section.appendChild(lineContainer);
+            this.extraDashboards.appendChild(section);
+
+            const entries = Object.entries(topic.memberCounts || {});
+            entries.sort((a, b) => b[1] - a[1]);
+            const labels = entries.map(([member]) => member);
+            const data = entries.map(([, count]) => count);
+
+            const ctx = canvas.getContext('2d');
+            const topicChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Messages per member',
+                        data: data,
+                        backgroundColor: 'rgba(13, 110, 253, 0.35)',
+                        borderColor: 'rgba(13, 110, 253, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Messages'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Members'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${topic.name || 'Topic'} - messages per member`,
+                            font: {
+                                size: 14
+                            }
+                        },
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            this.extraCharts.push(topicChart);
+
+            const memberHourCounts = topic.memberHourCounts || {};
+            const topMembers = entries.slice(0, 8).map(([member]) => member);
+            const lineLabels = Array.from({ length: 24 }, (_, index) => `${String(index).padStart(2, '0')}:00`);
+            const lineDatasets = topMembers.map((member, index) => {
+                const counts = Array.isArray(memberHourCounts[member]) ? memberHourCounts[member] : new Array(24).fill(0);
+                const colors = this.getLineColors(index);
+                return {
+                    label: member,
+                    data: counts,
+                    borderColor: colors.borderColor,
+                    backgroundColor: colors.backgroundColor,
+                    fill: false,
+                    pointRadius: 0,
+                    tension: 0.25,
+                    borderWidth: 2
+                };
+            });
+
+            const lineCtx = lineCanvas.getContext('2d');
+            const lineChart = new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: lineLabels,
+                    datasets: lineDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Messages'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Hour'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${topic.name || 'Topic'} - messages per hour by member`,
+                            font: {
+                                size: 14
+                            }
+                        }
+                    }
+                }
+            });
+
+            this.extraCharts.push(lineChart);
+        });
+    }
+
+    getLineColors(index) {
+        const palette = [
+            { backgroundColor: 'rgba(13, 110, 253, 0.2)', borderColor: 'rgba(13, 110, 253, 1)' },
+            { backgroundColor: 'rgba(25, 135, 84, 0.2)', borderColor: 'rgba(25, 135, 84, 1)' },
+            { backgroundColor: 'rgba(255, 193, 7, 0.2)', borderColor: 'rgba(255, 193, 7, 1)' },
+            { backgroundColor: 'rgba(220, 53, 69, 0.2)', borderColor: 'rgba(220, 53, 69, 1)' },
+            { backgroundColor: 'rgba(111, 66, 193, 0.2)', borderColor: 'rgba(111, 66, 193, 1)' },
+            { backgroundColor: 'rgba(32, 201, 151, 0.2)', borderColor: 'rgba(32, 201, 151, 1)' },
+            { backgroundColor: 'rgba(102, 16, 242, 0.2)', borderColor: 'rgba(102, 16, 242, 1)' },
+            { backgroundColor: 'rgba(13, 202, 240, 0.2)', borderColor: 'rgba(13, 202, 240, 1)' }
+        ];
+        return palette[index % palette.length];
     }
 }
 
@@ -612,6 +1195,9 @@ document.addEventListener('DOMContentLoaded', () => {
         fileInputId: 'jsonFile',
         chatSelectorId: 'chatSelector',
         timePeriodId: 'timePeriod',
+        extraDashboardsId: 'topicDashboards',
+        hourHeatmapId: 'hourHeatmap',
+        memberWordCloudsId: 'memberWordClouds',
         errorMessageId: 'errorMessage',
         fileListId: 'fileList',
         messageChartId: 'messageChart',

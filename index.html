@@ -29,6 +29,132 @@
             position: relative;
             height: 400px;
         }
+        .topic-dashboards {
+            margin-top: 30px;
+        }
+        .topic-dashboard-heading {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 1.25em;
+        }
+        .topic-dashboard-empty {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 12px 16px;
+            color: #6c757d;
+        }
+        .topic-section {
+            border-top: 1px solid #e9ecef;
+            margin-top: 18px;
+            padding-top: 18px;
+        }
+        .topic-section h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+        .topic-chart-container {
+            height: 320px;
+        }
+        .topic-line-container {
+            height: 260px;
+            margin-top: 14px;
+        }
+        .topic-heatmap {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+        }
+        .topic-heatmap-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        .topic-heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(24, 1fr);
+            gap: 4px;
+        }
+        .topic-heatmap-cell {
+            width: 100%;
+            padding-top: 100%;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .topic-heatmap-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 11px;
+            color: #6c757d;
+        }
+        .hour-heatmap {
+            margin-top: 18px;
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+        }
+        .hour-heatmap-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        .hour-heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(24, 1fr);
+            gap: 4px;
+        }
+        .hour-heatmap-cell {
+            width: 100%;
+            padding-top: 100%;
+            border-radius: 3px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .hour-heatmap-hours {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 11px;
+            color: #6c757d;
+        }
+        .member-clouds {
+            margin-top: 26px;
+        }
+        .member-clouds-heading {
+            margin: 0 0 12px 0;
+            color: #2c3e50;
+            font-size: 1.2em;
+        }
+        .member-clouds-grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+        .member-cloud-card {
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            min-height: 140px;
+        }
+        .member-cloud-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #495057;
+            font-size: 14px;
+        }
+        .member-cloud-words {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 8px;
+            line-height: 1.2;
+        }
+        .member-cloud-word {
+            color: #0d6efd;
+            white-space: nowrap;
+        }
         .controls {
             margin-bottom: 20px;
             display: flex;
@@ -253,6 +379,9 @@
             <div class="chart-container">
                 <canvas id="messageChart"></canvas>
             </div>
+            <div id="hourHeatmap" class="hour-heatmap"></div>
+            <div id="topicDashboards" class="topic-dashboards"></div>
+            <div id="memberWordClouds" class="member-clouds"></div>
         </div>
         <div id="aiTab" class="tab-panel" role="tabpanel">
             <div class="privacy-notice">
