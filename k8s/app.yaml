@@ -17,7 +17,7 @@ spec:
         - name: regcred
       containers:
         - name: chat-timeline
-          image: pdr.jonbesga.com/telegram-chats-timeline:feee5cdb62a8199ab11fc67f7b4147a9c0825387
+          image: pdr.jonbesga.com/telegram-chats-timeline:5a9967f96de218ca09690cfc60380161b3d9999f
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
