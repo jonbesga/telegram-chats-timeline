@@ -17,6 +17,7 @@ if ! command -v sed >/dev/null 2>&1; then
 fi
 
 sed -i.bak -E "s/data-commit=\"[^\"]+\"/data-commit=\"${commit_sha}\"/" "${index_file}"
+sed -i.bak -E "s|timeline\\.js\\?v=[^\"]+|timeline.js?v=${commit_sha}|" "${index_file}"
 rm -f "${index_file}.bak"
 
 echo "Stamped commit ${commit_sha} into ${index_file}"
