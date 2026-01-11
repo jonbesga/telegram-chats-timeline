@@ -503,7 +503,6 @@ function setupSourceVerification() {
     }
 
     const repo = container.getAttribute('data-repo');
-    const commit = container.getAttribute('data-commit');
     const link = container.querySelector('.source-link');
     const button = container.querySelector('.verify-button');
     const status = container.querySelector('.verify-status');
@@ -513,15 +512,11 @@ function setupSourceVerification() {
         status.setAttribute('data-state', state);
     };
 
-    if (!repo || !commit) {
+    if (!repo) {
         setStatus('Not configured', 'fail');
         button.disabled = true;
         return;
     }
-
-    const commitUrl = `https://github.com/${repo}/tree/${commit}`;
-    link.href = commitUrl;
-    link.textContent = commit;
 
     if (!window.crypto || !window.crypto.subtle) {
         setStatus('Unsupported browser', 'fail');
@@ -537,6 +532,14 @@ function setupSourceVerification() {
         return response.text();
     };
 
+    const fetchJson = async (url) => {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`Request failed: ${response.status}`);
+        }
+        return response.json();
+    };
+
     const hashText = async (text) => {
         const data = new TextEncoder().encode(text);
         const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -548,6 +551,16 @@ function setupSourceVerification() {
         button.disabled = true;
         setStatus('Checking...', 'checking');
         try {
+            const buildInfo = await fetchJson(`build.json?ts=${Date.now()}`);
+            const commit = buildInfo && buildInfo.commit;
+            if (!commit) {
+                throw new Error('Build info missing commit');
+            }
+
+            const commitUrl = `https://github.com/${repo}/tree/${commit}`;
+            link.href = commitUrl;
+            link.textContent = commit;
+
             const baseUrl = `https://raw.githubusercontent.com/${repo}/${commit}/`;
             const scriptTag = document.querySelector('script[src*="timeline.js"]');
             const localScriptUrl = scriptTag ? scriptTag.getAttribute('src') : 'timeline.js';

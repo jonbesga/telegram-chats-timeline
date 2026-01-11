@@ -4,8 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_repo="${IMAGE_REPO:-pdr.jonbesga.com/telegram-chats-timeline}"
 k8s_dir="${repo_root}/k8s"
-index_file="${repo_root}/index.html"
 app_yaml="${k8s_dir}/app.yaml"
+k8s_namespace="${K8S_NAMESPACE:-jon}"
 
 if [[ ! -f "${app_yaml}" ]]; then
     echo "k8s/app.yaml not found at ${app_yaml}" >&2
@@ -17,29 +17,15 @@ if [[ -n "$(git -C "${repo_root}" status --porcelain)" ]]; then
     exit 1
 fi
 
-deploy_ref="${DEPLOY_REF:-deploy-$(date -u +%Y%m%d%H%M%S)}"
-image_tag="${IMAGE_TAG:-${deploy_ref}}"
+commit_sha="$(git -C "${repo_root}" rev-parse HEAD)"
+image_tag="${IMAGE_TAG:-${commit_sha}}"
 image_ref="${image_repo}:${image_tag}"
 
-if git -C "${repo_root}" rev-parse "${deploy_ref}" >/dev/null 2>&1; then
-    echo "Deploy ref ${deploy_ref} already exists. Set DEPLOY_REF to a new value." >&2
-    exit 1
-fi
-
-"${repo_root}/scripts/stamp-commit.sh" "${deploy_ref}"
-
-docker build -t "${image_ref}" "${repo_root}"
+docker build --build-arg BUILD_COMMIT="${commit_sha}" -t "${image_ref}" "${repo_root}"
 docker push "${image_ref}"
 
-sed -i.bak -E "s|image: .*|image: ${image_ref}|" "${app_yaml}"
-rm -f "${app_yaml}.bak"
-
-git -C "${repo_root}" add "${index_file}" "${app_yaml}"
-git -C "${repo_root}" commit -m "Deploy ${deploy_ref}"
-git -C "${repo_root}" tag -a "${deploy_ref}" -m "Deploy ${deploy_ref}"
-git -C "${repo_root}" push
-git -C "${repo_root}" push --tags
-
-kubectl apply -f "${k8s_dir}"
+kubectl apply -f "${k8s_dir}/app.yaml"
+kubectl apply -f "${k8s_dir}/ingress.yaml"
+kubectl set image deployment/chat-timeline chat-timeline="${image_ref}" -n "${k8s_namespace}"
 
 echo "Deployed ${image_ref}"
