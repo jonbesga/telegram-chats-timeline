@@ -547,19 +547,33 @@ function setupSourceVerification() {
         return hashArray.map(value => value.toString(16).padStart(2, '0')).join('');
     };
 
-    const verify = async () => {
-        button.disabled = true;
-        setStatus('Checking...', 'checking');
+    const loadBuildInfo = async () => {
         try {
             const buildInfo = await fetchJson(`build.json?ts=${Date.now()}`);
             const commit = buildInfo && buildInfo.commit;
             if (!commit) {
                 throw new Error('Build info missing commit');
             }
-
             const commitUrl = `https://github.com/${repo}/tree/${commit}`;
             link.href = commitUrl;
             link.textContent = commit;
+            return commit;
+        } catch (error) {
+            link.textContent = 'Unavailable';
+            return null;
+        }
+    };
+
+    loadBuildInfo();
+
+    const verify = async () => {
+        button.disabled = true;
+        setStatus('Checking...', 'checking');
+        try {
+            const commit = await loadBuildInfo();
+            if (!commit) {
+                throw new Error('Build info missing commit');
+            }
 
             const baseUrl = `https://raw.githubusercontent.com/${repo}/${commit}/`;
             const scriptTag = document.querySelector('script[src*="timeline.js"]');
